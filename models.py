@@ -11,7 +11,7 @@ The data_wrangler environment is a simple test environment that echoes back mess
 """
 
 from typing import Dict, List, Optional, Any
-from openenv.core.env_server.types import Action, Observation
+from openenv.core.env_server.types import Action, Observation # type: ignore
 from pydantic import Field
 
 class DataWranglerAction(Action):
