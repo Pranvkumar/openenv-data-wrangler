@@ -58,29 +58,38 @@ Select Action: Which action type and parameters will execute this fix?
 }
 """
 
-async def get_model_message(client, step, obs_dict, last_reward, history):
+async def get_model_message(client, step, obs_dict, last_reward, history, max_retries=3):
     obs_text = str(obs_dict)
     prompt = f"Step {step}.\nObservation: {obs_text}\nLast Reward: {last_reward}\nHistory: {history}\nChoose your next action (JSON matching schema)."
-    try:
-        response = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.0
-        )
-        content = response.choices[0].message.content
-        import json
-        import re
-        # Basic parsing of the JSON structure that follows the thinking tags
-        match = re.search(r'(\{.*\})', content, re.DOTALL)
-        if match:
-            return json.loads(match.group(1))
-        # Fallback if unparseable
-        return {"action_type": "submit"}
-    except Exception as e:
-        return {"action_type": "submit"}
+    
+    # Priority 3: Error Reflection. Pass previous feedback directly to LLM if there was an error.
+    if "Error" in obs_dict.get("last_action_feedback", "") or "Exception" in obs_dict.get("last_action_feedback", ""):
+        prompt += f"\nCRITICAL: Your last action failed with this error: {obs_dict['last_action_feedback']}. Review your <thinking> block to correct your mistake before trying a new action."
+
+    for attempt in range(max_retries):
+        try:
+            response = await client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.0
+            )
+            content = response.choices[0].message.content
+            import json
+            import re
+            
+            match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if match:
+                return json.loads(match.group(1))
+            else:
+                prompt += f"\nWarning: Failed to extract JSON on attempt {attempt+1}. Provide ONLY valid JSON inside curly braces."
+        except Exception as e:
+            prompt += f"\nWarning: Exception on attempt {attempt+1}: {str(e)}. Provide valid JSON."
+            
+    # Fallback only if absolutely all retries fail
+    return {"action_type": "submit"}
 
 def log_start(task, env, model):
     print(f"[START] task={task} env={env} model={model}")

@@ -157,21 +157,36 @@ class DataWranglerEnvironment(Environment):
 
     def _grade(self) -> float:
         score = 0.0
-        if list(self.df.columns) == list(self.target_df.columns):
-            score += 0.5
-             # Match types and values
-            value_matches = 0
-            for col in self.df.columns:
+        
+        # Priority 2: Partial credit per correct column (name + dtype + values)
+        correct_columns = 0
+        target_cols = set(self.target_df.columns)
+        current_cols = set(self.df.columns)
+        
+        for col in target_cols:
+            if col in current_cols:
                 try:
-                    # simple match check
-                    match = (self.df[col] == self.target_df[col]).all()
-                    if match:
-                        value_matches += 1
+                    # Check dtype match
+                    if self.df[col].dtype == self.target_df[col].dtype:
+                        # Check value match
+                        if (self.df[col].equals(self.target_df[col])):
+                            correct_columns += 1
                 except:
                     pass
-            score += 0.5 * (value_matches / max(len(self.target_df.columns), 1))
+                    
+        # Max score from matching columns is 0.8 (leaving 0.2 for efficiency)
+        column_score = (correct_columns / max(len(target_cols), 1)) * 0.8
+        score += column_score
+        
+        # Priority 2: Step efficiency bonus
+        # If solved in few steps, give up to 0.2 bonus
+        ideal_steps = len(target_cols) # rough estimate
+        if self._state.step_count <= ideal_steps + 2:
+            score += 0.2
+        elif self._state.step_count <= ideal_steps + 5:
+            score += 0.1
             
-        return score
+        return min(max(score, 0.0), 1.0)
 
     @property
     def state(self) -> State:
