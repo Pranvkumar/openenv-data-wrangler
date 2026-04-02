@@ -16,7 +16,7 @@ MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
 IMAGE_NAME = "data_wrangler"
 TASK_NAME = "Data Writer Level 1"
 BENCHMARK = "data_wrangler"
-MAX_STEPS = 10
+MAX_STEPS = 15
 MAX_TOTAL_REWARD = 1.0
 SUCCESS_SCORE_THRESHOLD = 0.5
 
@@ -43,7 +43,10 @@ You have a strict, highly constrained toolset. Your chosen action MUST be a vali
 2. Rename Column: {"action_type": "rename_column", "target_column": "...", "new_name": "..."}
 3. Fill Missing Values: {"action_type": "fill_missing", "target_column": "...", "fill_value": "..."}
 4. Cast Data Type: {"action_type": "cast_type", "target_column": "...", "cast_to": "..."}
-5. Submit: {"action_type": "submit"}
+5. Extract Regex: {"action_type": "extract_regex", "target_column": "...", "new_name": "...", "regex_pattern": "..."}
+6. Parse Datetime: {"action_type": "datetime_parse", "target_column": "...", "format_string": "..."}
+7. Group By & Aggregate: {"action_type": "group_by_aggregate", "target_column": "...", "agg_column": "...", "agg_func": "sum|mean|count"}
+8. Submit: {"action_type": "submit"}
 
 REQUIRED OUTPUT FORMAT (CHAIN OF THOUGHT)
 <thinking>

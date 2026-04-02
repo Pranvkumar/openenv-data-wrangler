@@ -16,13 +16,17 @@ from pydantic import Field
 
 class DataWranglerAction(Action):
     """Action for the Data Wrangler environment."""
-    action_type: str = Field(..., description="Type of action: drop_column, rename_column, fill_missing, cast_type, submit")
+    action_type: str = Field(..., description="Type of action: drop_column, rename_column, fill_missing, cast_type, extract_regex, datetime_parse, group_by_aggregate, submit")
     
     # Specifics depending on action_type
     target_column: Optional[str] = Field(None, description="The name of the column to act upon.")
-    new_name: Optional[str] = Field(None, description="New name of the column (for rename_column).")
-    fill_value: Optional[str] = Field(None, description="Value to fill missing data with (for fill_missing).")
+    new_name: Optional[str] = Field(None, description="New name of the column (for rename_column/extract_regex).")
+    fill_value: Optional[str] = Field(None, description="Value to fill missing data with.")
     cast_to: Optional[str] = Field(None, description="Target data type (for cast_type, e.g. 'int', 'float', 'datetime', 'string').")
+    regex_pattern: Optional[str] = Field(None, description="Regex pattern for extracting data (for extract_regex).")
+    format_string: Optional[str] = Field(None, description="Datetime format string (for datetime_parse, e.g., '%Y-%m-%d').")
+    agg_column: Optional[str] = Field(None, description="Column to aggregate (for group_by_aggregate).")
+    agg_func: Optional[str] = Field(None, description="Aggregation function (e.g., 'mean', 'sum', 'count').")
 
 class DataWranglerObservation(Observation):
     """Observation representing the state of the dataset."""

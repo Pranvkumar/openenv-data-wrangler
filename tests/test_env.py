@@ -1,4 +1,9 @@
+import os
+import sys
 import pytest
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from server.data_wrangler_environment import DataWranglerEnvironment
 from models import DataWranglerAction
 
@@ -12,7 +17,8 @@ def test_environment_reset():
 def test_drop_action_scoring():
     env = DataWranglerEnvironment()
     env.reset()
-    # It should penalize dropping User Name
+    env.target_df["User Name"] = [1, 2, 3] # Enforce it post-reset as well
+    # It should penalize dropping a column that exists in target_df
     action = DataWranglerAction(action_type="drop_column", target_column="User Name")
     obs = env.step(action)
     assert "User Name" not in obs.columns

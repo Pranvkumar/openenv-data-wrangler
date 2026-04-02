@@ -48,7 +48,7 @@ class DataWranglerEnvironment(Environment):
                 "product_id": [101.0, 102.0, 103.0], 
                 "price": [10.5, 0.0, 12.0]
             })
-        else:
+        elif self.task_level == 3:
             # Hard: Multiple issues
             self.df = pd.DataFrame({
                 "date_joined ": ["2020-01-01", "2021-05-15", None],
@@ -60,6 +60,17 @@ class DataWranglerEnvironment(Environment):
                 "date_joined": [pd.Timestamp("2020-01-01"), pd.Timestamp("2021-05-15"), pd.Timestamp("1970-01-01")],
                 "sales_total": [100.0, 200.0, 300.0],
                 "is_active": [True, False, False]
+            })
+        else:
+            # Level 4: Extremely Hard / Expanded Tools
+            self.df = pd.DataFrame({
+                "transaction_info": ["TXN-101 (2020/01/15)", "TXN-102 (2020/01/16)", "TXN-103 (2020/01/16)"],
+                "customer_category": ["A", "B", "A"],
+                "amount": ["$500.5", "$250.0", "$300.0"]
+            })
+            self.target_df = pd.DataFrame({
+                "customer_category": ["A", "B"],
+                "amount": [800.5, 250.0] # Sum'd up
             })
 
     def _get_obs(self, feedback: str = "Environment initialized.", done: bool = False, reward: float = 0.0) -> DataWranglerObservation:
@@ -140,6 +151,37 @@ class DataWranglerEnvironment(Environment):
                     reward = 0.2
                 else:
                     feedback = f"Error: Column '{col}' not found."
+            
+            elif action.action_type == "extract_regex":
+                col = action.target_column
+                new_col = action.new_name
+                pattern = action.regex_pattern
+                if col in self.df.columns:
+                    # extract the first capture group
+                    extracted = self.df[col].astype(str).str.extract(pattern)[0]
+                    self.df[new_col] = extracted
+                    reward = 0.1
+                else:
+                    feedback = f"Error: Column '{col}' not found."
+                    
+            elif action.action_type == "datetime_parse":
+                col = action.target_column
+                fmt = action.format_string
+                if col in self.df.columns:
+                    self.df[col] = pd.to_datetime(self.df[col], format=fmt)
+                    reward = 0.1
+                else:
+                    feedback = f"Error: Column '{col}' not found."
+                    
+            elif action.action_type == "group_by_aggregate":
+                group_col = action.target_column
+                agg_col = action.agg_column
+                func = action.agg_func
+                if group_col in self.df.columns and agg_col in self.df.columns:
+                    self.df = self.df.groupby(group_col, as_index=False).agg({agg_col: func})
+                    reward = 0.2
+                else:
+                    feedback = f"Error: Columns '{group_col}' or '{agg_col}' not found."
                     
             elif action.action_type == "submit":
                 score = self._grade()
