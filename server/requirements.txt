@@ -6,3 +6,5 @@ uvicorn>=0.24.0
 
 pandas>=2.0.0
 openai>=1.0.0
+datasets>=2.14.0
+pyarrow>=13.0.0

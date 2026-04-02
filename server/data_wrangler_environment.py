@@ -26,6 +26,39 @@ class DataWranglerEnvironment(Environment):
     def _initialize_task(self):
         self.df = pd.DataFrame()
         self.target_df = pd.DataFrame()
+        
+        # Priority 5 - Dynamic Hugging Face or CSV Datasets
+        # If the user defines an external dataset via env var, load that instead.
+        dataset_source = os.environ.get("DATASET_SOURCE")
+        target_source = os.environ.get("TARGET_SOURCE")
+        
+        if dataset_source:
+            if str(dataset_source).endswith(".csv"):
+                self.df = pd.read_csv(dataset_source)
+            elif str(dataset_source).endswith(".parquet"):
+                self.df = pd.read_parquet(dataset_source)
+            else:
+                from datasets import load_dataset
+                # Fallback to Hugging Face Hub (e.g. "scikit-learn/titanic", "argilla/news-summary")
+                # We grab the 'train' split by default and convert it to pandas
+                hf_data = load_dataset(dataset_source, split="train")
+                self.df = hf_data.to_pandas()
+                
+            if target_source:
+                if str(target_source).endswith(".csv"):
+                    self.target_df = pd.read_csv(target_source)
+                elif str(target_source).endswith(".parquet"):
+                    self.target_df = pd.read_parquet(target_source)
+                else:
+                    from datasets import load_dataset
+                    hf_target = load_dataset(target_source, split="train")
+                    self.target_df = hf_target.to_pandas()
+            else:
+                # If there's no target provided, we force the LLM to simply drop all rows with missing values
+                # as a baseline goal for Dynamic runs to prevent graded failures on unstructured tests
+                self.target_df = self.df.dropna()
+            return
+
         if self.task_level == 1:
             # Easy: Just drop a column and rename one
             self.df = pd.DataFrame({
