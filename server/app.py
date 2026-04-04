@@ -29,6 +29,7 @@ Usage:
 """
 
 import os
+from fastapi.responses import RedirectResponse
 
 try:
     from openenv.core.env_server.http_server import create_app
@@ -56,6 +57,11 @@ app = create_app(
     env_name="data_wrangler",
     max_concurrent_envs=int(os.getenv("MAX_CONCURRENT_ENVS", "4")),
 )
+
+
+@app.get("/", include_in_schema=False)
+def root_redirect():
+    return RedirectResponse(url="/docs")
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):
