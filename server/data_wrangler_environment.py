@@ -109,10 +109,11 @@ class DataWranglerEnvironment(Environment):
     def _get_obs(self, feedback: str = "Environment initialized.", done: bool = False, reward: float = 0.0) -> DataWranglerObservation:
         stats = {}
         for col in self.df.columns:
+            non_null = self.df[col].dropna()
             stats[col] = {
                 "dtype": str(self.df[col].dtype),
                 "missing_count": int(self.df[col].isna().sum()),
-                "sample_values": self.df[col].dropna().astype(str).tolist()[:3]
+                "sample_values": non_null.astype(str).head(3).tolist(),
             }
         
         return DataWranglerObservation(
@@ -132,6 +133,12 @@ class DataWranglerEnvironment(Environment):
         self._initialize_task()
         return self._get_obs()
 
+    def _require_columns(self, *columns: str) -> str | None:
+        missing = [col for col in columns if not col or col not in self.df.columns]
+        if missing:
+            return f"Error: Column(s) not found: {', '.join(missing)}"
+        return None
+
     def step(self, action: DataWranglerAction) -> DataWranglerObservation: # type: ignore
         self._state.step_count += 1
         feedback = "Action executed successfully."
@@ -141,7 +148,8 @@ class DataWranglerEnvironment(Environment):
         try:
             if action.action_type == "drop_column":
                 col = action.target_column
-                if col in self.df.columns:
+                err = self._require_columns(col)
+                if not err:
                     self.df.drop(columns=[col], inplace=True)
                     if col not in self.target_df.columns:
                         reward = 0.2
@@ -149,72 +157,81 @@ class DataWranglerEnvironment(Environment):
                         reward = -0.5
                         feedback = f"Warning: dropped targeting column {col}"
                 else:
-                    feedback = f"Error: Column '{col}' not found."
+                    feedback = err
             
             elif action.action_type == "rename_column":
                 col = action.target_column
                 new_col = action.new_name
-                if col in self.df.columns:
+                err = self._require_columns(col)
+                if not err:
                     self.df.rename(columns={col: new_col}, inplace=True)
                     if new_col in self.target_df.columns:
                         reward = 0.2
                 else:
-                    feedback = f"Error: Column '{col}' not found."
+                    feedback = err
                     
             elif action.action_type == "fill_missing":
                 col = action.target_column
-                if col in self.df.columns:
-                    self.df[col].fillna(action.fill_value, inplace=True)
+                err = self._require_columns(col)
+                if not err:
+                    self.df[col] = self.df[col].fillna(action.fill_value)
                     reward = 0.1
                 else:
-                    feedback = f"Error: Column '{col}' not found."
+                    feedback = err
                     
             elif action.action_type == "cast_type":
                 col = action.target_column
-                to_type = action.cast_to
-                if col in self.df.columns:
-                    if to_type == 'int':
-                        self.df = self.df.astype({col: int})
-                    elif to_type == 'float':
-                        self.df = self.df.astype({col: float})
-                    elif to_type == 'datetime':
-                        self.df[col] = pd.to_datetime(self.df[col])
-                    elif to_type == 'string':
-                        self.df = self.df.astype({col: str})
+                to_type = (action.cast_to or "").lower()
+                err = self._require_columns(col)
+                if not err:
+                    if to_type == "int":
+                        self.df[col] = pd.to_numeric(self.df[col], errors="coerce").astype("Int64")
+                    elif to_type == "float":
+                        self.df[col] = pd.to_numeric(self.df[col], errors="coerce").astype(float)
+                    elif to_type == "datetime":
+                        self.df[col] = pd.to_datetime(self.df[col], errors="coerce")
+                    elif to_type == "string":
+                        self.df[col] = self.df[col].astype(str)
+                    else:
+                        feedback = f"Error: Unsupported cast type '{action.cast_to}'."
+                        return self._get_obs(feedback=feedback, done=done, reward=reward)
                     reward = 0.2
                 else:
-                    feedback = f"Error: Column '{col}' not found."
+                    feedback = err
             
             elif action.action_type == "extract_regex":
                 col = action.target_column
                 new_col = action.new_name
                 pattern = action.regex_pattern
-                if col in self.df.columns:
+                err = self._require_columns(col)
+                if not err and new_col and pattern:
                     # extract the first capture group
                     extracted = self.df[col].astype(str).str.extract(pattern)[0]
                     self.df[new_col] = extracted
                     reward = 0.1
                 else:
-                    feedback = f"Error: Column '{col}' not found."
+                    feedback = err or "Error: 'new_name' and 'regex_pattern' are required."
                     
             elif action.action_type == "datetime_parse":
                 col = action.target_column
                 fmt = action.format_string
-                if col in self.df.columns:
-                    self.df[col] = pd.to_datetime(self.df[col], format=fmt)
+                err = self._require_columns(col)
+                if not err:
+                    self.df[col] = pd.to_datetime(self.df[col], format=fmt, errors="coerce")
                     reward = 0.1
                 else:
-                    feedback = f"Error: Column '{col}' not found."
+                    feedback = err
                     
             elif action.action_type == "group_by_aggregate":
                 group_col = action.target_column
                 agg_col = action.agg_column
                 func = action.agg_func
-                if group_col in self.df.columns and agg_col in self.df.columns:
-                    self.df = self.df.groupby(group_col, as_index=False).agg({agg_col: func})
+                err = self._require_columns(group_col, agg_col)
+                if not err and func:
+                    self.df = self.df.groupby(group_col, as_index=False, observed=True).agg({agg_col: func})
                     reward = 0.2
                 else:
-                    feedback = f"Error: Columns '{group_col}' or '{agg_col}' not found."
+                    feedback = err or "Error: 'agg_func' is required."
                     
             elif action.action_type == "submit":
                 score = self._grade()

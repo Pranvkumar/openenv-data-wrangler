@@ -1,6 +1,8 @@
 import os
 import sys
 import asyncio
+import json
+import re
 from openai import AsyncOpenAI
 
 # OpenEnv V5 specific client components
@@ -19,6 +21,7 @@ BENCHMARK = "data_wrangler"
 MAX_STEPS = 15
 MAX_TOTAL_REWARD = 1.0
 SUCCESS_SCORE_THRESHOLD = 0.5
+MAX_HISTORY_ITEMS = int(os.environ.get("MAX_HISTORY_ITEMS", "6"))
 
 system_prompt = """\
 SYSTEM INSTRUCTIONS: ELITE DATA ENGINEER AGENT
@@ -63,7 +66,11 @@ Select Action: Which action type and parameters will execute this fix?
 
 async def get_model_message(client, step, obs_dict, last_reward, history, max_retries=3):
     obs_text = str(obs_dict)
-    prompt = f"Step {step}.\nObservation: {obs_text}\nLast Reward: {last_reward}\nHistory: {history}\nChoose your next action (JSON matching schema)."
+    trimmed_history = history[-MAX_HISTORY_ITEMS:] if history else []
+    prompt = (
+        f"Step {step}.\nObservation: {obs_text}\nLast Reward: {last_reward}\n"
+        f"History: {trimmed_history}\nChoose your next action (JSON matching schema)."
+    )
     
     # Priority 3: Error Reflection. Pass previous feedback directly to LLM if there was an error.
     if "Error" in obs_dict.get("last_action_feedback", "") or "Exception" in obs_dict.get("last_action_feedback", ""):
@@ -77,13 +84,12 @@ async def get_model_message(client, step, obs_dict, last_reward, history, max_re
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.0
+                temperature=0.0,
+                max_tokens=220,
             )
             content = response.choices[0].message.content
-            import json
-            import re
-            
-            match = re.search(r'(\{.*\})', content, re.DOTALL)
+
+            match = re.search(r'(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', content or "", re.DOTALL)
             if match:
                 return json.loads(match.group(1))
             else:

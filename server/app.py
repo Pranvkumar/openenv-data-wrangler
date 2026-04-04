@@ -28,6 +28,8 @@ Usage:
     python -m server.app
 """
 
+import os
+
 try:
     from openenv.core.env_server.http_server import create_app
 except Exception as e:  # pragma: no cover
@@ -52,7 +54,7 @@ app = create_app(
     DataWranglerAction,
     DataWranglerObservation,
     env_name="data_wrangler",
-    max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
+    max_concurrent_envs=int(os.getenv("MAX_CONCURRENT_ENVS", "4")),
 )
 
 
