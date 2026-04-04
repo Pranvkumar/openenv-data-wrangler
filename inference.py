@@ -1,22 +1,21 @@
 import os
-import sys
 import asyncio
 import json
 import re
 from openai import AsyncOpenAI
 
-# OpenEnv V5 specific client components
-# We import directly since OpenEnv varies slightly in versions, but this mirrors the validator script expectations.
 try:
-    from openenv.core.client import EnvClient
-except ImportError:
-    pass
+    from models import DataWranglerAction
+except (ImportError, ModuleNotFoundError):
+    import sys
+    sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+    from models import DataWranglerAction
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-API_KEY = os.environ.get("OPENAI_API_KEY", "")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
-IMAGE_NAME = "data_wrangler"
-TASK_NAME = "Data Writer Level 1"
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-3.5-turbo")
+HF_TOKEN = os.getenv("HF_TOKEN")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "data_wrangler")
+TASK_NAME = "data_wrangler_task"
 BENCHMARK = "data_wrangler"
 MAX_STEPS = 15
 MAX_TOTAL_REWARD = 1.0
@@ -100,38 +99,61 @@ async def get_model_message(client, step, obs_dict, last_reward, history, max_re
     # Fallback only if absolutely all retries fail
     return {"action_type": "submit"}
 
+def _bool_str(value):
+    return "true" if bool(value) else "false"
+
+
+def _action_str(action):
+    try:
+        return json.dumps(action, separators=(",", ":"), ensure_ascii=False)
+    except Exception:
+        return str(action).replace("\n", " ")
+
+
+def _reward_str(value):
+    try:
+        return f"{float(value):.2f}"
+    except Exception:
+        return "0.00"
+
+
 def log_start(task, env, model):
     print(f"[START] task={task} env={env} model={model}")
 
-def log_step(step, action, reward, done, error):
-    print(f"[STEP] step={step} action={action} reward={reward} done={done} error={error}")
 
-def log_end(success, steps, score, rewards):
-    print(f"[END] success={success} steps={steps} score={score} rewards={rewards}")
+def log_step(step, action, reward, done, error):
+    error_str = "null" if error is None else str(error).replace("\n", " ")
+    print(
+        f"[STEP] step={step} action={_action_str(action)} "
+        f"reward={_reward_str(reward)} done={_bool_str(done)} error={error_str}"
+    )
+
+
+def log_end(success, steps, rewards):
+    rewards_csv = ",".join(_reward_str(r) for r in rewards)
+    print(f"[END] success={_bool_str(success)} steps={steps} rewards={rewards_csv}")
 
 async def main():
-    if not API_KEY:
-        print("Missing OPENAI_API_KEY environment variable.")
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+
+    if not HF_TOKEN:
+        log_end(success=False, steps=0, rewards=[])
         return
 
-    client = AsyncOpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    
-    print(f"[DEBUG] Spinning up {IMAGE_NAME} environment container...", flush=True)
+    client = AsyncOpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+
     try:
         from client import DataWranglerEnv
-        env = DataWranglerEnv.from_docker_image(IMAGE_NAME)
-    except Exception as e:
-        print(f"[DEBUG] Docker env start failed ({e}). Falling back to local direct Python import.", flush=True)
+        env = DataWranglerEnv.from_docker_image(LOCAL_IMAGE_NAME)
+    except Exception:
         from server.data_wrangler_environment import DataWranglerEnvironment
-        env = DataWranglerEnvironment() # Fallback for local debugging
+        env = DataWranglerEnvironment()
 
     history = []
     rewards = []
     steps_taken = 0
     score = 0.0
     success = False
-
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
     try:
         if hasattr(env, 'reset') and not asyncio.iscoroutinefunction(env.reset):
@@ -155,15 +177,14 @@ async def main():
                 break
 
             action_data = await get_model_message(client, step, obs_dict, last_reward, history)
-            
-            from models import DataWranglerAction
+
             action_obj = DataWranglerAction(**action_data)
-            
+
             if hasattr(env, 'step') and not asyncio.iscoroutinefunction(env.step):
                 result = env.step(action_obj)
             else:
                 result = await env.step(action_obj)
-            
+
             obs = getattr(result, "observation", result)
             obs_dict = {
                 "columns": getattr(obs, "columns", []),
@@ -175,7 +196,8 @@ async def main():
 
             reward = getattr(result, "reward", getattr(obs, "reward", 0.0)) or 0.0
             done = getattr(result, "done", getattr(obs, "is_done", False))
-            error = None
+            feedback = obs_dict.get("last_action_feedback", "")
+            error = feedback if ("Error" in feedback or "Exception" in feedback) else None
 
             rewards.append(reward)
             steps_taken = step
@@ -200,9 +222,9 @@ async def main():
                 else:
                     env.close()
         except Exception as e:
-            print(f"[DEBUG] env.close() error (container cleanup): {e}", flush=True)
-            
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+            _ = e
+
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
 if __name__ == "__main__":
     asyncio.run(main())

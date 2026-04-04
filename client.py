@@ -54,9 +54,7 @@ class DataWranglerEnv(
         Returns:
             Dictionary representation suitable for JSON encoding
         """
-        return {
-            "message": action.message,
-        }
+        return action.model_dump(mode="json", exclude_none=True)
 
     def _parse_result(self, payload: Dict) -> StepResult[DataWranglerObservation]:
         """
@@ -70,8 +68,11 @@ class DataWranglerEnv(
         """
         obs_data = payload.get("observation", {})
         observation = DataWranglerObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
+            columns=obs_data.get("columns", []),
+            row_count=obs_data.get("row_count", 0),
+            column_stats=obs_data.get("column_stats", {}),
+            last_action_feedback=obs_data.get("last_action_feedback", ""),
+            is_done=obs_data.get("is_done", payload.get("done", False)),
             done=payload.get("done", False),
             reward=payload.get("reward"),
             metadata=obs_data.get("metadata", {}),
